@@ -1,0 +1,21 @@
+{
+  "name": "kiro-proxy",
+  "version": "1.0.0",
+  "description": "简化的 Kiro API 反代服务，适用于低配置设备",
+  "type": "module",
+  "main": "kiro-proxy.js",
+  "scripts": {
+    "start": "node kiro-proxy.js",
+    "test:config": "node test-config.js",
+    "test:refresh": "node test-refresh-token.js",
+    "test:uuid": "node test-uuid.js",
+    "test:request": "node test-kiro-request.js",
+    "import": "node import-credentials.js",
+    "test": "node test-import.js"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "express": "^4.22.1",
+    "toml": "^3.0.0"
+  }
+}

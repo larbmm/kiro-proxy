@@ -1,0 +1,33 @@
+# Kiro Proxy 配置文件
+
+[server]
+# 服务器监听端口
+port = 12321
+
+# 监听地址 (0.0.0.0 允许外部访问, 127.0.0.1 仅本地)
+host = "0.0.0.0"
+
+[model]
+# 统一转换的目标模型名
+# 支持的模型: claude-sonnet-4.5, claude-haiku-4.5, claude-opus-4.5, claude-sonnet-4.6, claude-opus-4.6
+# 注意: 必须使用点号格式 (例如: claude-sonnet-4.5)
+target_model = "claude-sonnet-4.5"
+
+[credentials]
+# Kiro 认证文件路径 (相对于当前目录)
+auth_file = "./kiro-auth-token.json"
+
+[device]
+# 设备唯一标识 (首次启动自动生成，请勿手动修改)
+uuid = "c71697df-cb8c-4221-a02d-eab1401e19e5"
+
+[advanced]
+# 请求延迟范围 (毫秒)
+delay_min = 2000
+delay_max = 4000
+
+# 指数退避重试次数
+max_retries = 3
+
+# Kiro 版本号 (用于 User-Agent)
+kiro_version = "0.11.131"

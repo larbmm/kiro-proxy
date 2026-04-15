@@ -1,0 +1,5 @@
+node_modules/
+kiro-auth-token.json
+*.log
+.env
+.backups/
