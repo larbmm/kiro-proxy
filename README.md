@@ -262,7 +262,7 @@ const httpsAgent = new https.Agent({
 
 ## 参考
 
-本项目参考了 `.other/AIClient-2-API` 的实现，特别是：
+本项目参考了 AIClient-2-API 的实现，特别是：
 - 流式响应解析逻辑
 - HTTP Agent 配置
 - Token 刷新机制

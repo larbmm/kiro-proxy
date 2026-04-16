@@ -3,6 +3,7 @@ import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { StringDecoder } from 'string_decoder';
 import toml from 'toml';
 import http from 'http';
 import https from 'https';
@@ -21,9 +22,9 @@ const authPath = path.join(__dirname, config.credentials.auth_file);
 let authData;
 try {
   if (!fs.existsSync(authPath)) {
-    console.error('\n' + '='.repeat(60));
+    console.error('\n' + '='.repeat(48));
     console.error('❌ 认证文件不存在');
-    console.error('='.repeat(60));
+    console.error('='.repeat(48));
     console.error(`找不到文件: ${config.credentials.auth_file}`);
     console.error('\n请按以下步骤操作：');
     console.error('1. 从 Kiro 或相关工具导出认证文件');
@@ -35,7 +36,7 @@ try {
     console.error('- AIClient-2-API 格式');
     console.error('- Kiro账号管理器格式');
     console.error('\n详细说明请查看 README.md');
-    console.error('='.repeat(60) + '\n');
+    console.error('='.repeat(48) + '\n');
     process.exit(1);
   }
   
@@ -61,16 +62,16 @@ try {
   }
   console.log(`  区域: ${authData.idcRegion}`);
 } catch (error) {
-  console.error('\n' + '='.repeat(60));
+  console.error('\n' + '='.repeat(48));
   console.error('❌ 认证文件加载失败');
-  console.error('='.repeat(60));
+  console.error('='.repeat(48));
   console.error(`错误: ${error.message}`);
   console.error('\n可能的原因：');
   console.error('1. 文件格式不正确（需要是有效的 JSON 格式）');
   console.error('2. 文件缺少必要字段（clientId, clientSecret, accessToken 等）');
   console.error('3. 文件编码问题');
   console.error('\n请检查认证文件格式，参考 README.md 中的示例');
-  console.error('='.repeat(60) + '\n');
+  console.error('='.repeat(48) + '\n');
   process.exit(1);
 }
 
@@ -244,67 +245,99 @@ app.post('/v1/chat/completions', async (req, res) => {
       res.setHeader('Connection', 'keep-alive');
       
       let buffer = '';
-      let processedEvents = new Set(); // 记录已处理的事件，避免重复
+      const decoder = new StringDecoder('utf8'); // 正确处理 UTF-8 多字节字符
+      let lastProcessedIndex = 0; // 记录已处理到的位置，避免重复
       
       response.data.on('data', (chunk) => {
-        const chunkStr = chunk.toString('utf8');
+        // 使用 StringDecoder 避免 UTF-8 字符被截断
+        const chunkStr = decoder.write(chunk);
         buffer += chunkStr;
         
         // Kiro API 使用二进制格式，需要匹配 :message-type 后面的 event 标记和 JSON
         // 格式: :message-type\x07\x00\x05event{JSON}
-        const eventRegex = /:message-type[\x00-\x1F]+event(\{[^\x00]*?\})/g;
+        const eventRegex = /:message-type[\x00-\x1F]+event/g;
         let match;
         
+        // 从上次处理的位置开始查找
+        eventRegex.lastIndex = lastProcessedIndex;
+        
         while ((match = eventRegex.exec(buffer)) !== null) {
-          const jsonStr = match[1];
-          const eventHash = jsonStr; // 使用 JSON 字符串作为唯一标识
+          const jsonStart = match.index + match[0].length;
           
-          // 跳过已处理的事件
-          if (processedEvents.has(eventHash)) {
-            continue;
-          }
-          
-          try {
-            const eventData = JSON.parse(jsonStr);
+          // 从 { 开始查找完整的 JSON 对象
+          if (buffer[jsonStart] === '{') {
+            // 尝试找到匹配的 }
+            let braceCount = 0;
+            let jsonEnd = -1;
             
-            // 只处理包含 content 的事件（忽略 contextUsagePercentage 等元数据）
-            if (eventData.content) {
-              // 处理转义字符
-              let content = eventData.content;
-              content = content.replace(/(?<!\\)\\n/g, '\n');
-              
-              // 转换为 OpenAI 格式
-              const openaiChunk = {
-                id: `chatcmpl-${Date.now()}`,
-                object: 'chat.completion.chunk',
-                created: Math.floor(Date.now() / 1000),
-                model: config.model.target_model,
-                choices: [{
-                  index: 0,
-                  delta: {
-                    content: content
-                  },
-                  finish_reason: null
-                }]
-              };
-              
-              res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
-              
-              // 标记为已处理
-              processedEvents.add(eventHash);
+            for (let i = jsonStart; i < buffer.length; i++) {
+              if (buffer[i] === '{') braceCount++;
+              else if (buffer[i] === '}') {
+                braceCount--;
+                if (braceCount === 0) {
+                  jsonEnd = i + 1;
+                  break;
+                }
+              }
             }
-          } catch (e) {
-            // 忽略解析错误
+            
+            // 如果找到完整的 JSON
+            if (jsonEnd > 0) {
+              const jsonStr = buffer.substring(jsonStart, jsonEnd);
+              
+              try {
+                const eventData = JSON.parse(jsonStr);
+                
+                // 只处理包含 content 的事件
+                if (eventData.content) {
+                  // 处理转义字符
+                  let content = eventData.content;
+                  content = content.replace(/(?<!\\)\\n/g, '\n');
+                  
+                  // 转换为 OpenAI 格式
+                  const openaiChunk = {
+                    id: `chatcmpl-${Date.now()}`,
+                    object: 'chat.completion.chunk',
+                    created: Math.floor(Date.now() / 1000),
+                    model: config.model.target_model,
+                    choices: [{
+                      index: 0,
+                      delta: {
+                        content: content
+                      },
+                      finish_reason: null
+                    }]
+                  };
+                  
+                  res.write(`data: ${JSON.stringify(openaiChunk)}\n\n`);
+                }
+                
+                // 更新已处理位置
+                lastProcessedIndex = jsonEnd;
+              } catch (e) {
+                // JSON 解析失败，继续
+              }
+            } else {
+              // JSON 不完整，等待更多数据
+              break;
+            }
           }
         }
         
-        // 清理已处理的数据，保留最后 1000 字符以防 JSON 被截断
-        if (buffer.length > 1000) {
-          buffer = buffer.slice(-1000);
+        // 清理已处理的数据，保留未处理的部分
+        if (lastProcessedIndex > 2000) {
+          buffer = buffer.substring(lastProcessedIndex);
+          lastProcessedIndex = 0;
         }
       });
       
       response.data.on('end', () => {
+        // 处理剩余的字节
+        const remaining = decoder.end();
+        if (remaining) {
+          buffer += remaining;
+        }
+        
         // 发送结束标记
         const finalChunk = {
           id: `chatcmpl-${Date.now()}`,
@@ -328,8 +361,48 @@ app.post('/v1/chat/completions', async (req, res) => {
         res.end();
       });
     } else {
-      // 非流式响应
-      const openaiResponse = convertToOpenAIFormat(response.data, false);
+      // 非流式响应 - response.data 是 Buffer
+      const buffer = response.data.toString('utf8');
+      
+      // 解析二进制格式，提取所有 content
+      let fullContent = '';
+      const eventRegex = /:message-type[\x00-\x1F]+event(\{[^\x00]*?\})/g;
+      let match;
+      
+      while ((match = eventRegex.exec(buffer)) !== null) {
+        try {
+          const eventData = JSON.parse(match[1]);
+          if (eventData.content) {
+            let content = eventData.content;
+            content = content.replace(/(?<!\\)\\n/g, '\n');
+            fullContent += content;
+          }
+        } catch (e) {
+          // 忽略解析错误
+        }
+      }
+      
+      // 转换为 OpenAI 格式
+      const openaiResponse = {
+        id: `chatcmpl-${Date.now()}`,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: config.model.target_model,
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: fullContent
+          },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        }
+      };
+      
       res.json(openaiResponse);
       console.log('  ✓ 非流式响应完成');
     }
@@ -485,7 +558,7 @@ async function callKiroAPI(requestData, stream) {
   
   return axios.post(url, requestData, {
     headers,
-    responseType: stream ? 'stream' : 'json',
+    responseType: stream ? 'stream' : 'arraybuffer',  // 非流式也用 arraybuffer，因为返回的是二进制
     timeout: 120000,
     httpAgent,
     httpsAgent,
@@ -498,9 +571,9 @@ const PORT = config.server.port || 12321;
 const HOST = config.server.host || '0.0.0.0';
 
 app.listen(PORT, HOST, async () => {
-  console.log('\n' + '='.repeat(60));
+  console.log('\n' + '='.repeat(48));
   console.log('🚀 Kiro Proxy 服务已启动');
-  console.log('='.repeat(60));
+  console.log('='.repeat(48));
   console.log(`监听地址: http://${HOST}:${PORT}`);
   console.log(`目标模型: ${config.model.target_model}`);
   if (authData.email) {
@@ -527,5 +600,5 @@ app.listen(PORT, HOST, async () => {
     console.log(`过期时间: ${expiresAtLocal}`);
   }
   
-  console.log('='.repeat(60) + '\n');
+  console.log('='.repeat(48));
 });
