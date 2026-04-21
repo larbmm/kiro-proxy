@@ -600,5 +600,78 @@ app.listen(PORT, HOST, async () => {
     console.log(`过期时间: ${expiresAtLocal}`);
   }
   
+  // 查询并显示用量信息
+  try {
+    const usageUrl = `${KIRO_API_BASE}/getUsageLimits`;
+    const params = new URLSearchParams({
+      isEmailRequired: 'true',
+      origin: 'AI_EDITOR',
+      resourceType: 'AGENTIC_REQUEST'
+    });
+    
+    const response = await axios.get(`${usageUrl}?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${authData.accessToken}`,
+        'Content-Type': 'application/json',
+        'User-Agent': `AWS-Toolkit-For-VSCode/${KIRO_VERSION}`,
+        'x-amz-codewhisperer-optout': 'false',
+        'x-amzn-codewhisperer-device-id': deviceUUID
+      },
+      timeout: 10000,
+      httpAgent,
+      httpsAgent,
+      proxy: false
+    });
+    
+    const data = response.data;
+    const usage = data.usageBreakdownList?.[0];
+    const freeTrialInfo = usage?.freeTrialInfo;
+    
+    if (freeTrialInfo) {
+      const used = freeTrialInfo.currentUsageWithPrecision || freeTrialInfo.currentUsage;
+      const limit = freeTrialInfo.usageLimitWithPrecision || freeTrialInfo.usageLimit;
+      const remaining = limit - used;
+      const percentage = ((used / limit) * 100).toFixed(1);
+      
+      console.log(`\n💳 免费试用额度:`);
+      console.log(`   已用: ${used.toFixed(2)} / ${limit} Credits (${percentage}%)`);
+      console.log(`   剩余: ${remaining.toFixed(2)} Credits`);
+      
+      const expiryDate = new Date(freeTrialInfo.freeTrialExpiry * 1000);
+      console.log(`   到期: ${expiryDate.toLocaleString('zh-CN')}`);
+      
+      if (remaining <= 0) {
+        console.log(`   ⚠️  免费试用额度已用尽`);
+      }
+    }
+    
+    if (usage) {
+      const monthlyLimit = usage.usageLimitWithPrecision || usage.usageLimit;
+      const monthlyUsed = usage.currentUsageWithPrecision || usage.currentUsage;
+      const monthlyRemaining = monthlyLimit - monthlyUsed;
+      const monthlyPercentage = ((monthlyUsed / monthlyLimit) * 100).toFixed(1);
+      
+      console.log(`\n📊 月度额度:`);
+      console.log(`   限额: ${monthlyLimit} Credits/月`);
+      console.log(`   已用: ${monthlyUsed.toFixed(2)} Credits (${monthlyPercentage}%)`);
+      console.log(`   剩余: ${monthlyRemaining.toFixed(2)} Credits`);
+      
+      if (monthlyRemaining < 5) {
+        console.log(`   🚨 警告: 月度额度即将耗尽！`);
+      } else if (monthlyRemaining < 15) {
+        console.log(`   ⚠️  提示: 月度额度较低`);
+      }
+      
+      if (usage.nextDateReset) {
+        const resetDate = new Date(usage.nextDateReset * 1000);
+        console.log(`   重置时间: ${resetDate.toLocaleString('zh-CN')}`);
+      }
+    }
+  } catch (err) {
+    console.log(`\n⚠️  无法查询用量信息: ${err.message}`);
+  }
+  
+  console.log('\n' + '='.repeat(48));
+  console.log('✅ 服务就绪');
   console.log('='.repeat(48));
 });
