@@ -30,4 +30,4 @@ delay_max = 4000
 max_retries = 3
 
 # Kiro 版本号 (用于 User-Agent)
-kiro_version = "0.11.131"
+kiro_version = "0.11.133"

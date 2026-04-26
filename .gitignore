@@ -3,3 +3,4 @@ kiro-auth-token.json
 *.log
 .env
 .backups/
+kiro-proxy-log.js
