@@ -30,7 +30,19 @@ npm install
 
 支持两种格式（程序自动识别）：
 
-**格式 1: AIClient-2-API 格式**
+**格式 1: Social Auth (Google/GitHub) 格式**
+```json
+{
+  "accessToken": "your-access-token",
+  "refreshToken": "your-refresh-token",
+  "profileArn": "arn:aws:...",
+  "expiresAt": "2026-04-15T16:56:22.923Z",
+  "authMethod": "social",
+  "region": "us-east-1"
+}
+```
+
+**格式 2: Builder ID (IdC) 格式**
 ```json
 {
   "clientId": "your-client-id",
@@ -43,21 +55,10 @@ npm install
 }
 ```
 
-**格式 2: Kiro账号管理器格式**
-```json
-{
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret",
-  "accessToken": "your-access-token",
-  "refreshToken": "your-refresh-token",
-  "expiresAt": "2026-04-15T16:56:22.923Z",
-  "region": "us-east-1",
-  "userInfo": {
-    "email": "user@example.com",
-    "userId": "your-user-id"
-  }
-}
-```
+> **注意**: 
+> - Social Auth 方式不需要 `clientId` 和 `clientSecret`
+> - Builder ID 方式需要完整的四个字段
+> - 程序会根据 `authMethod` 字段自动选择正确的刷新方式
 
 > **如何获取认证文件？**
 > 1. 从 AWS Toolkit、Kiro 或相关工具导出

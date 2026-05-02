@@ -1,9 +1,8 @@
 {
-  "clientId": "your-client-id",
-  "clientSecret": "your-client-secret",
   "accessToken": "your-access-token",
   "refreshToken": "your-refresh-token",
   "expiresAt": "2026-04-15T16:56:22.923Z",
-  "authMethod": "IdC",
-  "idcRegion": "us-east-1"
+  "authMethod": "social",
+  "region": "us-east-1",
+  "profileArn": "arn:aws:iam::123456789012:user/example"
 }

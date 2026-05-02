@@ -50,17 +50,21 @@ try {
     refreshToken: rawAuthData.refreshToken,
     expiresAt: rawAuthData.expiresAt,
     authMethod: rawAuthData.authMethod || 'IdC',
+    // 支持两种区域字段名
+    region: rawAuthData.region || rawAuthData.idcRegion || 'us-east-1',
     idcRegion: rawAuthData.idcRegion || rawAuthData.region || 'us-east-1',
     // 额外信息（如果有）
     email: rawAuthData.email || rawAuthData.userInfo?.email,
-    userId: rawAuthData.userId || rawAuthData.userInfo?.userId
+    userId: rawAuthData.userId || rawAuthData.userInfo?.userId,
+    profileArn: rawAuthData.profileArn
   };
   
   console.log('✓ 认证文件加载成功');
   if (authData.email) {
     console.log(`  账号: ${authData.email}`);
   }
-  console.log(`  区域: ${authData.idcRegion}`);
+  console.log(`  认证方式: ${authData.authMethod}`);
+  console.log(`  区域: ${authData.region}`);
 } catch (error) {
   console.error('\n' + '='.repeat(48));
   console.error('❌ 认证文件加载失败');
@@ -121,20 +125,37 @@ if (!deviceUUID || deviceUUID === 'auto-generated-on-first-run') {
   console.log('✓ 使用已有的设备 UUID');
 }
 
-// Token 刷新函数
+// Token 刷新函数（支持 Social Auth 和 Builder ID 两种方式）
 async function refreshAccessToken() {
   try {
     console.log('\n[Token] 正在刷新 Access Token...');
     
-    const region = authData.idcRegion || 'us-east-1';
-    const refreshUrl = `https://oidc.${region}.amazonaws.com/token`;
+    // 根据 authMethod 选择不同的刷新方式
+    const authMethod = authData.authMethod || 'IdC';
+    let refreshUrl, requestBody;
     
-    const response = await axios.post(refreshUrl, {
-      refreshToken: authData.refreshToken,
-      clientId: authData.clientId,
-      clientSecret: authData.clientSecret,
-      grantType: 'refresh_token'
-    }, {
+    if (authMethod === 'social') {
+      // Social Auth (Google/GitHub) 方式
+      const region = authData.region || authData.idcRegion || 'us-east-1';
+      refreshUrl = `https://prod.${region}.auth.desktop.kiro.dev/refreshToken`;
+      requestBody = {
+        refreshToken: authData.refreshToken
+      };
+      console.log(`[Token] 使用 Social Auth 方式刷新 (region: ${region})`);
+    } else {
+      // Builder ID (IdC) 方式
+      const region = authData.idcRegion || authData.region || 'us-east-1';
+      refreshUrl = `https://oidc.${region}.amazonaws.com/token`;
+      requestBody = {
+        refreshToken: authData.refreshToken,
+        clientId: authData.clientId,
+        clientSecret: authData.clientSecret,
+        grantType: 'refresh_token'
+      };
+      console.log(`[Token] 使用 Builder ID 方式刷新 (region: ${region})`);
+    }
+    
+    const response = await axios.post(refreshUrl, requestBody, {
       headers: {
         'Content-Type': 'application/json'
       },
@@ -170,6 +191,7 @@ async function refreshAccessToken() {
     console.error('[Token] ✗ 刷新失败:', error.message);
     if (error.response) {
       console.error('[Token] 响应状态:', error.response.status);
+      console.error('[Token] 响应数据:', error.response.data);
     }
     return false;
   }
