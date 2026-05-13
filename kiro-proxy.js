@@ -56,7 +56,7 @@ try {
     // 额外信息（如果有）
     email: rawAuthData.email || rawAuthData.userInfo?.email,
     userId: rawAuthData.userId || rawAuthData.userInfo?.userId,
-    profileArn: rawAuthData.profileArn
+    profileArn: rawAuthData.profileArn || rawAuthData.userInfo?.profileArn
   };
   
   console.log('✓ 认证文件加载成功');
@@ -65,6 +65,13 @@ try {
   }
   console.log(`  认证方式: ${authData.authMethod}`);
   console.log(`  区域: ${authData.region}`);
+  if (String(authData.authMethod).toLowerCase() === 'social') {
+    if (authData.profileArn) {
+      console.log('  Profile ARN: ✓ 已加载');
+    } else {
+      console.warn('  ⚠️  Social Auth 认证文件缺少 profileArn，Kiro 可能会拒绝模型请求');
+    }
+  }
 } catch (error) {
   console.error('\n' + '='.repeat(48));
   console.error('❌ 认证文件加载失败');
@@ -85,6 +92,117 @@ app.use(express.json({ limit: '50mb' }));
 // Kiro API 配置
 const KIRO_API_BASE = `https://q.${authData.idcRegion || 'us-east-1'}.amazonaws.com`;
 const KIRO_VERSION = config.advanced.kiro_version || '0.11.131';
+const KIRO_MODEL_ALIASES = Object.freeze({
+  auto: 'auto',
+  'claude-haiku-4-5': 'claude-haiku-4.5',
+  'claude-haiku-4.5': 'claude-haiku-4.5',
+  'claude-haiku-4-5-20251001': 'claude-haiku-4.5',
+  'claude-opus-4-7': 'claude-opus-4.7',
+  'claude-opus-4.7': 'claude-opus-4.7',
+  'claude-opus-4-6': 'claude-opus-4.6',
+  'claude-opus-4.6': 'claude-opus-4.6',
+  'claude-opus-4-5': 'claude-opus-4.5',
+  'claude-opus-4.5': 'claude-opus-4.5',
+  'claude-opus-4-5-20251101': 'claude-opus-4.5',
+  'claude-sonnet-4-6': 'claude-sonnet-4.6',
+  'claude-sonnet-4.6': 'claude-sonnet-4.6',
+  'claude-sonnet-4-5': 'claude-sonnet-4.5',
+  'claude-sonnet-4.5': 'claude-sonnet-4.5',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-4.5',
+  'claude-sonnet-4-20250514': 'claude-sonnet-4.0',
+  'claude-sonnet-4-0': 'claude-sonnet-4.0',
+  'claude-sonnet-4.0': 'claude-sonnet-4.0',
+  'deepseek-3-2': 'deepseek-3.2',
+  'deepseek-3.2': 'deepseek-3.2',
+  'glm-5': 'glm-5',
+  'minimax-m2-5': 'minimax-m2.5',
+  'minimax-m2.5': 'minimax-m2.5',
+  'minimax-m2-1': 'minimax-m2.1',
+  'minimax-m2.1': 'minimax-m2.1',
+  'qwen3-coder-next': 'qwen3-coder-next'
+});
+
+function normalizeKiroModelId(modelId) {
+  const rawModelId = String(modelId || '').trim();
+  if (!rawModelId) {
+    return 'auto';
+  }
+
+  const withoutProviderPrefix = rawModelId.includes('/')
+    ? rawModelId.split('/').pop()
+    : rawModelId;
+  const withoutRoutePrefix = withoutProviderPrefix.includes(':')
+    ? withoutProviderPrefix.split(':').pop()
+    : withoutProviderPrefix;
+  const normalizedKey = withoutRoutePrefix.toLowerCase();
+
+  return KIRO_MODEL_ALIASES[normalizedKey] || withoutRoutePrefix;
+}
+
+function decodeResponseData(data) {
+  if (data === undefined || data === null) {
+    return data;
+  }
+
+  if (Buffer.isBuffer(data)) {
+    return parseJsonOrText(data.toString('utf8'));
+  }
+
+  if (data instanceof ArrayBuffer) {
+    return parseJsonOrText(Buffer.from(data).toString('utf8'));
+  }
+
+  if (ArrayBuffer.isView(data)) {
+    return parseJsonOrText(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8'));
+  }
+
+  return data;
+}
+
+function parseJsonOrText(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return text;
+  }
+}
+
+function getUpstreamErrorMessage(data, fallbackMessage) {
+  if (data && typeof data === 'object') {
+    return data.message || data.error?.message || fallbackMessage;
+  }
+
+  return data || fallbackMessage;
+}
+
+const TARGET_KIRO_MODEL = normalizeKiroModelId(config.model?.target_model || 'auto');
+
+function getKiroMachineId() {
+  const uniqueKey = deviceUUID || authData.profileArn || authData.clientId || 'KIRO_DEFAULT_MACHINE';
+  return crypto.createHash('sha256').update(uniqueKey).digest('hex');
+}
+
+function buildKiroHeaders(maxAttempts = 3) {
+  const machineId = getKiroMachineId();
+  return {
+    'Authorization': `Bearer ${authData.accessToken}`,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'amz-sdk-invocation-id': crypto.randomUUID(),
+    'amz-sdk-request': `attempt=1; max=${maxAttempts}`,
+    'x-amz-codewhisperer-optout': 'false',
+    'x-amzn-codewhisperer-device-id': deviceUUID,
+    'x-amzn-kiro-agent-mode': 'vibe',
+    'x-amz-user-agent': `aws-sdk-js/1.0.34 KiroIDE-${KIRO_VERSION}-${machineId}`,
+    'user-agent': `aws-sdk-js/1.0.34 ua/2.1 lang/js md/nodejs#${process.versions.node} api/codewhispererstreaming#1.0.34 m/E KiroIDE-${KIRO_VERSION}-${machineId}`,
+    'Connection': 'close'
+  };
+}
 
 // 配置 HTTP/HTTPS Agent（参考 AIClient-2-API 的实现）
 const httpAgent = new http.Agent({
@@ -131,7 +249,7 @@ async function refreshAccessToken() {
     console.log('\n[Token] 正在刷新 Access Token...');
     
     // 根据 authMethod 选择不同的刷新方式
-    const authMethod = authData.authMethod || 'IdC';
+    const authMethod = String(authData.authMethod || 'IdC').toLowerCase();
     let refreshUrl, requestBody;
     
     if (authMethod === 'social') {
@@ -234,7 +352,8 @@ app.post('/v1/chat/completions', async (req, res) => {
     
     const timestamp = new Date().toLocaleString('zh-CN', { hour12: false });
     console.log(`\n[${timestamp}] 收到请求`);
-    console.log(`  模型: ${model || config.model.target_model}`);
+    console.log(`  请求模型: ${model || '(未提供)'}`);
+    console.log(`  转发模型: ${TARGET_KIRO_MODEL}`);
     console.log(`  流式: ${stream ? '是' : '否'}`);
     console.log(`  消息数: ${messages?.length || 0}`);
 
@@ -321,7 +440,7 @@ app.post('/v1/chat/completions', async (req, res) => {
                     id: `chatcmpl-${Date.now()}`,
                     object: 'chat.completion.chunk',
                     created: Math.floor(Date.now() / 1000),
-                    model: config.model.target_model,
+                    model: TARGET_KIRO_MODEL,
                     choices: [{
                       index: 0,
                       delta: {
@@ -365,7 +484,7 @@ app.post('/v1/chat/completions', async (req, res) => {
           id: `chatcmpl-${Date.now()}`,
           object: 'chat.completion.chunk',
           created: Math.floor(Date.now() / 1000),
-          model: config.model.target_model,
+          model: TARGET_KIRO_MODEL,
           choices: [{
             index: 0,
             delta: {},
@@ -409,7 +528,7 @@ app.post('/v1/chat/completions', async (req, res) => {
         id: `chatcmpl-${Date.now()}`,
         object: 'chat.completion',
         created: Math.floor(Date.now() / 1000),
-        model: config.model.target_model,
+        model: TARGET_KIRO_MODEL,
         choices: [{
           index: 0,
           message: {
@@ -433,17 +552,17 @@ app.post('/v1/chat/completions', async (req, res) => {
     console.error('  ✗ 请求失败:', error.message);
     if (error.response) {
       console.error('  响应状态:', error.response.status);
-      // 安全地打印响应数据，避免循环引用
-      try {
-        console.error('  响应数据:', JSON.stringify(error.response.data, null, 2));
-      } catch (jsonError) {
-        console.error('  响应数据: [无法序列化]');
-      }
+      const responseData = decodeResponseData(error.response.data);
+      const printableData = typeof responseData === 'string'
+        ? responseData
+        : JSON.stringify(responseData, null, 2);
+      console.error('  响应数据:', printableData);
     }
+    const responseData = decodeResponseData(error.response?.data);
     res.status(error.response?.status || 500).json({
       error: {
-        message: error.message,
-        type: 'api_error'
+        message: getUpstreamErrorMessage(responseData, error.message),
+        type: responseData?.reason || 'api_error'
       }
     });
   }
@@ -455,7 +574,7 @@ app.get('/v1/models', (req, res) => {
     object: 'list',
     data: [
       {
-        id: config.model.target_model,
+        id: TARGET_KIRO_MODEL,
         object: 'model',
         created: Date.now(),
         owned_by: 'kiro-proxy'
@@ -466,6 +585,10 @@ app.get('/v1/models', (req, res) => {
 
 // 转换为 Kiro 格式
 function convertToKiroFormat(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    throw new Error('messages must be a non-empty array');
+  }
+
   const conversationState = {
     agentTaskType: "vibe",
     chatTriggerType: "MANUAL",
@@ -475,11 +598,14 @@ function convertToKiroFormat(messages) {
   };
   
   // 直接使用配置文件中的模型名
-  const kiroModel = config.model.target_model;
+  const kiroModel = TARGET_KIRO_MODEL;
   
   // 提取系统消息和用户消息
   const systemMessages = messages.filter(m => m.role === 'system');
   const userMessages = messages.filter(m => m.role !== 'system');
+  if (userMessages.length === 0) {
+    throw new Error('messages must contain at least one non-system message');
+  }
   
   // 构建对话历史（除了最后一条消息）
   for (let i = 0; i < userMessages.length - 1; i++) {
@@ -516,8 +642,13 @@ function convertToKiroFormat(messages) {
     modelId: kiroModel,
     origin: "AI_EDITOR"
   };
-  
-  return { conversationState };
+
+  const request = { conversationState };
+  if (String(authData.authMethod).toLowerCase() === 'social' && authData.profileArn) {
+    request.profileArn = authData.profileArn;
+  }
+
+  return request;
 }
 
 // 转换为 OpenAI 格式
@@ -528,7 +659,7 @@ function convertToOpenAIFormat(kiroData, isStream) {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
-      model: config.model.target_model,
+      model: TARGET_KIRO_MODEL,
       choices: [{
         index: 0,
         delta: {
@@ -547,7 +678,7 @@ function convertToOpenAIFormat(kiroData, isStream) {
       id: `chatcmpl-${Date.now()}`,
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
-      model: config.model.target_model,
+      model: TARGET_KIRO_MODEL,
       choices: [{
         index: 0,
         message: {
@@ -567,19 +698,10 @@ function convertToOpenAIFormat(kiroData, isStream) {
 
 // 调用 Kiro API
 async function callKiroAPI(requestData, stream) {
-  const headers = {
-    'Authorization': `Bearer ${authData.accessToken}`,
-    'Content-Type': 'application/json',
-    'User-Agent': `AWS-Toolkit-For-VSCode/${KIRO_VERSION}`,
-    'x-amz-codewhisperer-optout': 'false',
-    'x-amzn-codewhisperer-device-id': deviceUUID,
-    'Connection': 'close'  // 参考 AIClient-2-API 的设置
-  };
-  
   const url = `${KIRO_API_BASE}/generateAssistantResponse`;
   
   return axios.post(url, requestData, {
-    headers,
+    headers: buildKiroHeaders(3),
     responseType: stream ? 'stream' : 'arraybuffer',  // 非流式也用 arraybuffer，因为返回的是二进制
     timeout: 120000,
     httpAgent,
@@ -597,7 +719,10 @@ app.listen(PORT, HOST, async () => {
   console.log('🚀 Kiro Proxy 服务已启动');
   console.log('='.repeat(48));
   console.log(`监听地址: http://${HOST}:${PORT}`);
-  console.log(`目标模型: ${config.model.target_model}`);
+  console.log(`目标模型: ${TARGET_KIRO_MODEL}`);
+  if (TARGET_KIRO_MODEL !== config.model.target_model) {
+    console.log(`配置模型: ${config.model.target_model}`);
+  }
   if (authData.email) {
     console.log(`登录账号: ${authData.email}`);
   }
@@ -630,15 +755,12 @@ app.listen(PORT, HOST, async () => {
       origin: 'AI_EDITOR',
       resourceType: 'AGENTIC_REQUEST'
     });
+    if (String(authData.authMethod).toLowerCase() === 'social' && authData.profileArn) {
+      params.append('profileArn', authData.profileArn);
+    }
     
     const response = await axios.get(`${usageUrl}?${params.toString()}`, {
-      headers: {
-        'Authorization': `Bearer ${authData.accessToken}`,
-        'Content-Type': 'application/json',
-        'User-Agent': `AWS-Toolkit-For-VSCode/${KIRO_VERSION}`,
-        'x-amz-codewhisperer-optout': 'false',
-        'x-amzn-codewhisperer-device-id': deviceUUID
-      },
+      headers: buildKiroHeaders(1),
       timeout: 10000,
       httpAgent,
       httpsAgent,

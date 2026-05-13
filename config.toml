@@ -2,16 +2,16 @@
 
 [server]
 # 服务器监听端口
-port = 12321
+port = 9000
 
 # 监听地址 (0.0.0.0 允许外部访问, 127.0.0.1 仅本地)
 host = "0.0.0.0"
 
 [model]
 # 统一转换的目标模型名
-# 支持的模型: claude-sonnet-4.5, claude-haiku-4.5, claude-opus-4.5, claude-sonnet-4.6, claude-opus-4.6
-# 注意: 必须使用点号格式 (例如: claude-sonnet-4.5)
-target_model = "claude-sonnet-4.5"
+# 常用模型: auto, claude-sonnet-4.5, claude-sonnet-4.6, claude-opus-4.6, claude-opus-4.7
+# 兼容 OpenAI/Anthropic 风格连字符别名 (例如: claude-sonnet-4-5)
+target_model = "claude-opus-4.6"
 
 [credentials]
 # Kiro 认证文件路径 (相对于当前目录)
@@ -30,4 +30,4 @@ delay_max = 4000
 max_retries = 3
 
 # Kiro 版本号 (用于 User-Agent)
-kiro_version = "0.11.133"
+kiro_version = "0.12.184"

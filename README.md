@@ -74,8 +74,9 @@ port = 12321
 host = "127.0.0.1"  # 仅本机访问，更安全
 
 [model]
-# 支持的模型：claude-sonnet-4.5, claude-haiku-4.5, claude-opus-4.5, 
-#           claude-sonnet-4.6, claude-opus-4.6
+# 常用模型：auto, claude-sonnet-4.5, claude-sonnet-4.6,
+#           claude-opus-4.6, claude-opus-4.7
+# 也兼容连字符别名，例如 claude-sonnet-4-5
 target_model = "claude-sonnet-4.5"
 
 [credentials]
@@ -213,9 +214,9 @@ Token 状态: ✓ 有效 (剩余 2 小时 30 分钟)
 ```
 
 **解决方法**:
-确保使用点号格式：
-- ✅ `claude-sonnet-4.5`
-- ❌ `claude-sonnet-4-5`
+1. 如果使用 Social Auth，确保认证文件里包含 `profileArn`
+2. 优先使用 Kiro 模型名，例如 `claude-sonnet-4.5` 或 `auto`
+3. 程序会自动兼容常见连字符别名，例如 `claude-sonnet-4-5`
 
 ### 流式响应不工作
 
